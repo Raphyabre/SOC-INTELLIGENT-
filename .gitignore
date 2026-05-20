@@ -1,0 +1,21 @@
+# Environnements virtuels
+.venv/
+venv/
+env/
+
+# Fichiers compilés Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Fichiers de Base de données (Générés localement)
+soc_alerts.db
+*.sqlite3
+
+# Logs et Fichiers temporaires
+*.log
+KDDTest+.txt
+_final_check.py
+
+# Fichiers d'environnement (Mots de passe, API keys)
+.env
