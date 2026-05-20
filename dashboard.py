@@ -436,8 +436,8 @@ normal_events = total_events - attack_events
 # =====================================================================
 # TABS
 # =====================================================================
-tab_live, tab_threat, tab_xai, tab_mitre, tab_models = st.tabs([
-    "🌍 Live Operations", "🔍 Threat Intel", "🧠 XAI Forensics", "🗺️ MITRE ATT&CK", "📊 Model Benchmarks"
+tab_live, tab_threat, tab_xai, tab_mitre, tab_models, tab_batch = st.tabs([
+    "🌍 Live Operations", "🔍 Threat Intel", "🧠 XAI Forensics", "🗺️ MITRE ATT&CK", "📊 Model Benchmarks", "📂 Batch Forensics"
 ])
 
 # =====================================================================
@@ -891,6 +891,165 @@ with tab_models:
                 height=300, margin=dict(l=10, r=10, t=10, b=10)
             )
             st.plotly_chart(fig_cm, use_container_width=True)
+
+def auto_parse_logs(df):
+    """ETL Intelligent : Tente de mapper un CSV inconnu vers les 41 features NSL-KDD."""
+    required_cols = [
+        'duration', 'protocol_type', 'service', 'flag', 'src_bytes',
+        'dst_bytes', 'land', 'wrong_fragment', 'urgent', 'hot',
+        'num_failed_logins', 'logged_in', 'num_compromised', 'root_shell',
+        'su_attempted', 'num_root', 'num_file_creations', 'num_shells',
+        'num_access_files', 'num_outbound_cmds', 'is_host_login',
+        'is_guest_login', 'count', 'srv_count', 'serror_rate',
+        'srv_serror_rate', 'rerror_rate', 'srv_rerror_rate',
+        'same_srv_rate', 'diff_srv_rate', 'srv_diff_host_rate',
+        'dst_host_count', 'dst_host_srv_count', 'dst_host_same_srv_rate',
+        'dst_host_diff_srv_rate', 'dst_host_same_src_port_rate',
+        'dst_host_srv_diff_host_rate', 'dst_host_serror_rate',
+        'dst_host_srv_serror_rate', 'dst_host_rerror_rate',
+        'dst_host_srv_rerror_rate'
+    ]
+    
+    # Check if it's already a perfect NSL-KDD file
+    if all(col in df.columns for col in required_cols):
+        return df, False
+        
+    mapped_df = pd.DataFrame()
+    cols_lower = {str(c).lower(): c for c in df.columns}
+    
+    # Protocol
+    if 'protocol' in cols_lower: mapped_df['protocol_type'] = df[cols_lower['protocol']]
+    elif 'proto' in cols_lower: mapped_df['protocol_type'] = df[cols_lower['proto']]
+    else: mapped_df['protocol_type'] = "tcp"
+    
+    # Bytes
+    if 'src_bytes' in cols_lower: mapped_df['src_bytes'] = df[cols_lower['src_bytes']]
+    elif 'length' in cols_lower: mapped_df['src_bytes'] = df[cols_lower['length']]
+    elif 'bytes' in cols_lower: mapped_df['src_bytes'] = df[cols_lower['bytes']]
+    else: mapped_df['src_bytes'] = 0
+    
+    # Duration
+    if 'duration' in cols_lower: mapped_df['duration'] = df[cols_lower['duration']]
+    elif 'time' in cols_lower: mapped_df['duration'] = df[cols_lower['time']]
+    else: mapped_df['duration'] = 0
+    
+    # Service / Port
+    if 'service' in cols_lower: 
+        mapped_df['service'] = df[cols_lower['service']]
+    elif 'port' in cols_lower or 'dst_port' in cols_lower:
+        port_col = cols_lower.get('dst_port', cols_lower.get('port'))
+        port_map = {80: "http", 443: "http", 21: "ftp", 22: "ssh", 25: "smtp", 53: "domain_u"}
+        mapped_df['service'] = df[port_col].map(lambda x: port_map.get(x, "other") if pd.notnull(x) else "other")
+    else:
+        mapped_df['service'] = "other"
+        
+    # Default Fillers
+    for col in required_cols:
+        if col not in mapped_df.columns:
+            if col == 'flag': mapped_df['flag'] = "SF"
+            else: mapped_df[col] = 0.0
+            
+    # Label
+    if 'label' in cols_lower:
+        mapped_df['label'] = df[cols_lower['label']]
+        
+    return mapped_df, True
+
+# =====================================================================
+# TAB 6 : BATCH FORENSICS (CSV Import)
+# =====================================================================
+with tab_batch:
+    st.markdown("## 📂 Investigation Forensique par Lot (Batch)")
+    st.markdown("Importez un fichier CSV contenant des logs réseau pour que l'IA analyse l'historique complet en quelques secondes.")
+    
+    uploaded_file = st.file_uploader("Choisissez un fichier CSV (format NSL-KDD ou logs bruts)", type=["csv"])
+    
+    if uploaded_file is not None:
+        try:
+            # Lecture initiale
+            df_raw = pd.read_csv(uploaded_file)
+            
+            # Passage dans l'Auto-Parser (ETL)
+            df_import, was_parsed = auto_parse_logs(df_raw)
+            
+            st.success(f"Fichier `{uploaded_file.name}` chargé ({len(df_import)} logs).")
+            
+            if was_parsed:
+                st.warning("⚠️ **Format Inconnu Détecté** : L'Auto-Parser a restructuré vos colonnes et généré les variables manquantes pour permettre l'analyse par l'IA.")
+                
+            if st.button("🚀 Lancer l'Analyse IA Forensique", type="primary"):
+                progress_text = "Analyse des logs par le moteur Ensemble Learning..."
+                my_bar = st.progress(0, text=progress_text)
+                
+                results_batch = []
+                total_rows = len(df_import)
+                
+                # Simulation d'un geo-ip fixe pour les logs importés
+                geo_mock = {"src_ip": "ImportedLog", "src_lat": 0, "src_lon": 0, "dst_ip": "Local", "dst_lat": 0, "dst_lon": 0}
+                
+                # Traitement ligne par ligne via l'API
+                for idx, row in df_import.iterrows():
+                    # Conversion de la row en dict pour l'API
+                    row_dict = row.to_dict()
+                    payload = {
+                        "data": row_dict,
+                        "true_label": str(row.get("label", "unknown")),
+                        "geo_data": geo_mock
+                    }
+                    
+                    try:
+                        resp = requests.post("http://127.0.0.1:8000/predict", json=payload, timeout=2)
+                        if resp.status_code == 200:
+                            pred = resp.json()
+                            results_batch.append({
+                                "Ligne": idx + 1,
+                                "Protocole": row.get("protocol_type", ""),
+                                "Service": row.get("service", ""),
+                                "Octets envoyés": row.get("src_bytes", 0),
+                                "Décision IA": pred.get("prediction", "ERROR"),
+                                "Confiance": f"{pred.get('confidence', 0)*100:.1f}%",
+                                "Sévérité": pred.get("mitre", {}).get("severity", "INFO"),
+                                "Action": pred.get("action_taken", "Alert Only")
+                            })
+                    except Exception as e:
+                        pass # Ignore les erreurs de timeout pour un batch
+                    
+                    # Maj barre de progression
+                    my_bar.progress((idx + 1) / total_rows, text=f"Analyse en cours : {idx + 1}/{total_rows} logs traités.")
+                
+                my_bar.empty()
+                st.success("✅ Analyse Forensique Terminée.")
+                
+                if results_batch:
+                    res_df = pd.DataFrame(results_batch)
+                    
+                    colA, colB = st.columns([1, 2])
+                    with colA:
+                        nb_atk = len(res_df[res_df['Décision IA'] == 'ATTACK'])
+                        st.metric("Total Logs", len(res_df))
+                        st.metric("Attaques Trouvées", nb_atk, delta_color="inverse")
+                    
+                    with colB:
+                        st.markdown("### Rapport des Menaces Identifiées")
+                        # Styliser le dataframe de résultat
+                        def color_decision(val):
+                            color = 'rgba(248,81,73,0.2)' if val == 'ATTACK' else 'rgba(63,185,80,0.1)'
+                            return f'background-color: {color}'
+                        
+                        styled_df = res_df.style.applymap(color_decision, subset=['Décision IA'])
+                        st.dataframe(styled_df, use_container_width=True)
+                        
+                        # Bouton de téléchargement
+                        csv = res_df.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            label="📥 Télécharger le Rapport Forensique (CSV)",
+                            data=csv,
+                            file_name=f'forensic_report_{int(time.time())}.csv',
+                            mime='text/csv',
+                        )
+                
+        except Exception as e:
+            st.error(f"Erreur de lecture du fichier : {e}. Assurez-vous qu'il s'agit d'un CSV compatible.")
 
 # =====================================================================
 # AUTO-REFRESH
