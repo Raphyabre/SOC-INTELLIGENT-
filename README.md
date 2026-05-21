@@ -27,15 +27,25 @@ CyberShield est un Centre Opérationnel de Sécurité (SOC) intelligent de bout 
 ## 🛠️ Architecture du Système
 
 ```mermaid
-graph TD;
-    A[Trafic Réseau] -->|Live Sniffer (Scapy)| B(API FastAPI);
-    S[Simulateur NSL-KDD] -->|Trafic Mocké| B;
-    H[Honeypot FTP] -->|Tentatives de connexion| E[(Base de Données SQLite)];
-    B --> C{Ensemble ML/DL};
-    C -->|Prédiction & SHAP| D[Générateur Rapport GenAI];
-    D -->|MITRE & Threat Intel| E;
-    E --> F[Dashboard Streamlit];
-    C -->|Si CRITICAL| G[Pare-Feu Windows (IPS)];
+graph TD
+    A["Trafic Réseau"]
+    B("API FastAPI")
+    S["Simulateur NSL-KDD"]
+    H["Honeypot FTP"]
+    C{"Ensemble ML/DL"}
+    D["Générateur Rapport GenAI"]
+    E[("Base de Données SQLite")]
+    F["Dashboard Streamlit"]
+    G["Pare-Feu Windows (IPS)"]
+
+    A -->|"Live Sniffer (Scapy)"| B
+    S -->|"Trafic Mocké"| B
+    H -->|"Tentatives de connexion"| E
+    B --> C
+    C -->|"Prédiction & SHAP"| D
+    D -->|"MITRE & Threat Intel"| E
+    E --> F
+    C -->|"Si CRITICAL"| G
 ```
 
 ---
