@@ -13,14 +13,14 @@ CyberShield est un Centre Opérationnel de Sécurité (SOC) intelligent de bout 
 
 ## ✨ Fonctionnalités Principales
 
-- 🧠 **Détection par Ensemble Learning** : Vote pondéré entre 4 algorithmes (Random Forest, XGBoost, DNN, LSTM-Autoencoder) assurant une très haute précision sur le dataset NSL-KDD.
-- 🕵️‍♂️ **Intelligence Explicable (XAI)** : Intégration de SHAP pour justifier mathématiquement chaque décision de l'IA (transparence des modèles).
+- 🧠 **Détection par Ensemble Learning** : Vote pondéré entre 4 algorithmes (Random Forest, XGBoost, DNN, LSTM-Autoencoder) assurant une très haute précision.
+- 🕵️‍♂️ **Intelligence Explicable (XAI)** : Intégration de SHAP pour justifier mathématiquement chaque décision de l'IA.
 - 🤖 **Copilote GenAI Analyste** : Un LLM simulé rédige un rapport forensique détaillé pour chaque alerte, classifiant la menace selon le framework **MITRE ATT&CK**.
-- ⚔️ **Mitigation Active (Mode IPS)** : L'IA ne fait pas qu'alerter ; si la menace est "CRITICAL", le système exécute une commande système pour bloquer l'IP via le Pare-feu Windows de façon autonome.
-- 🔌 **Double Capteur Réseau** :
-  - *Mode Simulation* : Injecte des vagues d'attaques massives.
-  - *Mode Live Sniffer* : Utilise Scapy pour analyser votre **véritable trafic réseau local** en temps réel.
-- 📊 **Dashboard Next-Gen** : Interface de classe Enterprise avec Threat Map 3D dynamique (Streamlit + Plotly).
+- ⚔️ **Mitigation Active (Mode IPS)** : L'IA bloque les menaces critiques de façon autonome via le Pare-feu Windows.
+- 🌍 **Cartographie Mondiale (Threat Map 3D)** : Suivi en temps réel de la provenance des attaques grâce à l'API GeoIP publique `ip-api.com`.
+- 🍯 **Honeypot FTP Actif** : Piège logiciel simulant un service vulnérable pour intercepter et bannir immédiatement tout scanner réseau malveillant.
+- 📂 **Batch Forensics (PCAP / CSV)** : Upload de fichiers de captures réseaux (`.pcap`) ou de logs offline pour les passer au crible de l'IA Forensique.
+- 📊 **Intelligence de Filtrage** : Le Dashboard sépare intelligemment les données de simulation des véritables attaques interceptées en direct.
 
 ---
 
@@ -30,9 +30,10 @@ CyberShield est un Centre Opérationnel de Sécurité (SOC) intelligent de bout 
 graph TD;
     A[Trafic Réseau] -->|Live Sniffer (Scapy)| B(API FastAPI);
     S[Simulateur NSL-KDD] -->|Trafic Mocké| B;
+    H[Honeypot FTP] -->|Tentatives de connexion| E[(Base de Données SQLite)];
     B --> C{Ensemble ML/DL};
     C -->|Prédiction & SHAP| D[Générateur Rapport GenAI];
-    D -->|MITRE & Threat Intel| E[(Base de Données SQLite)];
+    D -->|MITRE & Threat Intel| E;
     E --> F[Dashboard Streamlit];
     C -->|Si CRITICAL| G[Pare-Feu Windows (IPS)];
 ```
@@ -48,8 +49,8 @@ graph TD;
 ### Déploiement
 1. Clonez ce dépôt :
    ```bash
-   git clone https://github.com/votre-nom/CyberShield-SOC.git
-   cd CyberShield-SOC
+   git clone https://github.com/Raphyabre/SOC-INTELLIGENT-.git
+   cd SOC-INTELLIGENT-
    ```
 2. Créez un environnement virtuel et installez les dépendances :
    ```bash
@@ -64,13 +65,16 @@ graph TD;
 
 Pour lancer le SOC complet (API + Dashboard), exécutez le script d'orchestration **en tant qu'Administrateur** (requis pour la mitigation active IPS) :
 
-Double-cliquez sur : `run_soc.bat` (Cilc Droit -> Exécuter en tant qu'administrateur).
+Double-cliquez sur : `run_soc.bat` (Clic Droit -> Exécuter en tant qu'administrateur).
+Ou sur un portail web d'administration en mode local (Dashboard) accessible à : `http://localhost:8501`. Utilisez les identifiants : `admin` / `soc_admin_2026`.
 
-### Contrôle de la Sonde
+### Contrôle des Sondes et Outils
 Une fois le Dashboard ouvert dans votre navigateur :
 - Allez dans le panneau latéral de gauche.
-- Cliquez sur **🔴 Lancer Simu** pour lancer une vague d'attaque synthétique (idéal pour les démos).
-- Cliquez sur **🔵 Lancer Live** pour brancher l'IA sur votre propre carte réseau et analyser vos connexions web en direct !
+- Cliquez sur **🔴 Simu** pour lancer une vague d'attaque synthétique (idéal pour les démos).
+- Cliquez sur **🔵 Live** pour brancher l'IA sur votre propre carte réseau.
+- Cliquez sur **🍯 Déployer Honeypot (FTP)** pour lancer le piège logiciel sur le port 21.
+- Naviguez vers l'onglet **📂 Batch Forensics** pour analyser un fichier `.pcap` ou `.csv` (un fichier généré `test_attack.pcap` est disponible à la racine du projet).
 
 ---
 
@@ -80,4 +84,4 @@ L'IA bloquant activement les IP malveillantes dans votre pare-feu, vous pouvez r
 2. **Exécuter en tant qu'administrateur**
 
 ---
-*Projet de fin d'études - Intelligence Artificielle appliquée à la Cybersécurité.*
+*Projet d'Intelligence Artificielle appliquée à la Cybersécurité.*
