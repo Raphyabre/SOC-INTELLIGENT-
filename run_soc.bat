@@ -1,5 +1,7 @@
 @echo off
+cd /d "%~dp0"
 chcp 65001 >nul 2>&1
+rem.
 title CyberShield SOC V3 - Lancement des Services
 echo =====================================================================
 echo   CYBERSHIELD SOC V3 - NEXT-GEN SECURITY OPERATIONS CENTER
@@ -32,7 +34,7 @@ timeout /t 15 /nobreak > nul
 
 :: 2. Lancement du Dashboard SIEM V3
 echo [2/3] Demarrage du Dashboard SIEM sur http://localhost:8501...
-start "Streamlit - CyberShield Dashboard" cmd /k "title CyberShield - Dashboard SIEM && .venv\Scripts\streamlit run dashboard.py --server.headless true"
+start "Streamlit - CyberShield Dashboard" cmd /k "title CyberShield - Dashboard SIEM && .venv\Scripts\streamlit run dashboard.py --server.headless false"
 
 :: Attendre le dashboard
 timeout /t 3 /nobreak > nul

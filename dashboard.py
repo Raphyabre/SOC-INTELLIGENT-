@@ -11,6 +11,8 @@ import streamlit as st
 import pydeck as pdk
 import subprocess
 import psutil
+from fpdf import FPDF
+from datetime import datetime
 
 # Fix Windows encoding
 sys.stdout.reconfigure(encoding='utf-8')
@@ -288,8 +290,8 @@ st.markdown("""
 # =====================================================================
 # DATA LAYER
 # =====================================================================
-def get_live_stats():
-    """Récupère les statistiques agrégées depuis SQLite."""
+def get_live_stats(mode="all"):
+    """Récupère les statistiques agrégées depuis SQLite en fonction du mode (Simulation vs Live)."""
     if not os.path.exists(DB_FILE):
         return pd.DataFrame(), 0, 0, 0.0, pd.DataFrame()
     try:
@@ -298,6 +300,18 @@ def get_live_stats():
         conn.close()
         if df.empty:
             return pd.DataFrame(), 0, 0, 0.0, pd.DataFrame()
+            
+        # Filtrage intelligent selon l'origine des données
+        if mode == "sim":
+            # NSL-KDD a des vrais labels comme 'normal', 'neptune', etc.
+            df = df[~df['true_label'].isin(['unknown', 'attack'])]
+        elif mode == "live":
+            # Le Live Sniffer utilise 'unknown', le Honeypot utilise 'attack'
+            df = df[df['true_label'].isin(['unknown', 'attack'])]
+            
+        if df.empty:
+            return pd.DataFrame(), 0, 0, 0.0, pd.DataFrame()
+            
         total = len(df)
         attacks = len(df[df["prediction"] == "ATTACK"])
         attack_rate = (attacks / total) * 100 if total > 0 else 0.0
@@ -307,6 +321,55 @@ def get_live_stats():
         if "no such column" in str(e).lower():
             os.remove(DB_FILE)
         return pd.DataFrame(), 0, 0, 0.0, pd.DataFrame()
+
+# =====================================================================
+# PDF REPORT GENERATOR (Option 3)
+# =====================================================================
+def generate_pdf_report(df, total, attacks):
+    if df.empty:
+        return None
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("helvetica", 'B', 16)
+        pdf.cell(0, 10, "Rapport d'Incident SOC - CyberShield", new_x="LMARGIN", new_y="NEXT", align='C')
+        
+        pdf.set_font("helvetica", '', 12)
+        pdf.cell(0, 10, f"Date d'export : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", new_x="LMARGIN", new_y="NEXT", align='C')
+        pdf.ln(10)
+        
+        pdf.set_font("helvetica", 'B', 12)
+        pdf.cell(0, 10, "Resume Global des Alertes :", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("helvetica", '', 11)
+        pdf.cell(0, 8, f"- Total evenements analyses : {total}", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 8, f"- Total attaques bloquees : {attacks}", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(10)
+        
+        if attacks > 0:
+            pdf.set_font("helvetica", 'B', 12)
+            pdf.cell(0, 10, "Top 10 Dernieres Attaques Bloquees :", new_x="LMARGIN", new_y="NEXT")
+            pdf.set_font("helvetica", 'B', 10)
+            
+            pdf.cell(45, 10, "Heure", border=1)
+            pdf.cell(40, 10, "IP Source", border=1)
+            pdf.cell(60, 10, "Tactique MITRE", border=1)
+            pdf.cell(30, 10, "Severite", border=1, new_x="LMARGIN", new_y="NEXT")
+            
+            pdf.set_font("helvetica", '', 9)
+            atk_df = df[df["prediction"] == "ATTACK"].head(10)
+            for _, row in atk_df.iterrows():
+                mitre_tactic = str(row.get("mitre_tactic", "N/A"))[:25]
+                severity = "CRITICAL" if row.get("confidence", 0) > 0.9 else "HIGH"
+                
+                pdf.cell(45, 8, str(row["timestamp"]), border=1)
+                pdf.cell(40, 8, str(row["src_ip"]), border=1)
+                pdf.cell(60, 8, mitre_tactic, border=1)
+                pdf.cell(30, 8, severity, border=1, new_x="LMARGIN", new_y="NEXT")
+                
+        return pdf.output()
+    except Exception as e:
+        print(f"Erreur lors de la generation du PDF: {e}")
+        return None
 
 def clear_db():
     if os.path.exists(DB_FILE):
@@ -319,6 +382,7 @@ def get_process_status():
     """Vérifie quels scripts d'acquisition tournent."""
     sim_running = False
     live_running = False
+    honey_running = False
     for p in psutil.process_iter(['name', 'cmdline']):
         try:
             cmd = " ".join(p.info['cmdline'] or [])
@@ -326,9 +390,11 @@ def get_process_status():
                 sim_running = True
             elif 'live_sniffer.py' in cmd and 'python' in p.info['name'].lower():
                 live_running = True
+            elif 'honeypot.py' in cmd and 'python' in p.info['name'].lower():
+                honey_running = True
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             pass
-    return sim_running, live_running
+    return sim_running, live_running, honey_running
 
 def kill_process(script_name):
     """Tue un script spécifique."""
@@ -339,6 +405,37 @@ def kill_process(script_name):
                 p.kill()
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             pass
+
+# =====================================================================
+# AUTHENTICATION (Option 2)
+# =====================================================================
+if 'authenticated' not in st.session_state:
+    st.session_state['authenticated'] = False
+
+if not st.session_state['authenticated']:
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("""
+        <div style="text-align:center; padding: 2.5rem; background: linear-gradient(135deg, #161b22, #1c2333); border: 1px solid #30363d; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <div style="font-size: 4rem; margin-bottom: 1rem;">🔐</div>
+            <h2 style="margin-bottom: 0.5rem; color: #58a6ff;">Portail SOC CyberShield</h2>
+            <p style="color: #8b949e; margin-bottom: 2rem; font-family: 'JetBrains Mono', monospace;">Accès restreint au personnel autorisé</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        with st.form("login_form"):
+            username = st.text_input("Identifiant Administrateur", placeholder="Ex: admin")
+            password = st.text_input("Mot de passe", type="password", placeholder="Ex: soc_admin_2026")
+            submit = st.form_submit_button("S'authentifier", use_container_width=True)
+            
+            if submit:
+                if username == "admin" and password == "soc_admin_2026":
+                    st.session_state['authenticated'] = True
+                    st.rerun()
+                else:
+                    st.error("❌ Identifiants incorrects. Accès refusé.")
+    st.stop()  # Stoppe le rendu du dashboard si non connecté !
 
 # =====================================================================
 # SIDEBAR
@@ -372,8 +469,8 @@ except Exception:
 
 # --- CONTRÔLE DE LA SONDE ---
 st.sidebar.markdown("---")
-st.sidebar.markdown("##### 🔌 Sonde d'Acquisition")
-sim_status, live_status = get_process_status()
+st.sidebar.markdown("##### 🔌 Sondes & Pièges")
+sim_status, live_status, honey_status = get_process_status()
 
 if sim_status:
     st.sidebar.success("Mode actif : **Simulation (NSL-KDD)**")
@@ -382,9 +479,12 @@ elif live_status:
 else:
     st.sidebar.warning("Mode actif : **Aucun (En veille)**")
 
+if honey_status:
+    st.sidebar.error("🍯 **Honeypot FTP** : ACTIF (Port 21)")
+
 col1, col2 = st.sidebar.columns(2)
 with col1:
-    if st.button("🔴 Lancer Simu", help="Injecte le trafic NSL-KDD"):
+    if st.button("🔴 Simu", help="Injecte le trafic NSL-KDD"):
         kill_process("live_sniffer.py")
         if not sim_status:
             subprocess.Popen([sys.executable, "traffic_generator.py", "--interval", "0.3"], creationflags=subprocess.CREATE_NEW_CONSOLE)
@@ -392,17 +492,24 @@ with col1:
             st.rerun()
 
 with col2:
-    if st.button("🔵 Lancer Live", help="Écoute la carte réseau via Scapy"):
+    if st.button("🔵 Live", help="Écoute la carte réseau via Scapy"):
         kill_process("traffic_generator.py")
         if not live_status:
             subprocess.Popen([sys.executable, "live_sniffer.py"], creationflags=subprocess.CREATE_NEW_CONSOLE)
             time.sleep(1)
             st.rerun()
 
-if sim_status or live_status:
-    if st.sidebar.button("⏹️ Stopper l'Acquisition", use_container_width=True):
+if not honey_status:
+    if st.sidebar.button("🍯 Déployer Honeypot (FTP)", use_container_width=True):
+        subprocess.Popen([sys.executable, "honeypot.py"], creationflags=subprocess.CREATE_NEW_CONSOLE)
+        time.sleep(1)
+        st.rerun()
+
+if sim_status or live_status or honey_status:
+    if st.sidebar.button("⏹️ Tout Stopper", use_container_width=True):
         kill_process("traffic_generator.py")
         kill_process("live_sniffer.py")
+        kill_process("honeypot.py")
         time.sleep(1)
         st.rerun()
 
@@ -411,6 +518,36 @@ st.sidebar.markdown("##### Configuration")
 refresh_rate = st.sidebar.slider("Rafraîchissement (s)", 1, 10, 2)
 enable_refresh = st.sidebar.checkbox("Auto-refresh", value=True)
 show_only_attacks = st.sidebar.checkbox("Attaques uniquement", value=False)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("##### 👁️ Vue des Données")
+
+options_view = ["Toutes les données", "Simulation Uniquement", "Sondes Réelles (Live/Honeypot)"]
+
+if "data_view_mode" not in st.session_state:
+    st.session_state.data_view_mode = "Toutes les données"
+
+# Switch automatique de la vue uniquement au démarrage d'une sonde
+if sim_status and not st.session_state.get("was_sim_running", False):
+    st.session_state.data_view_mode = "Simulation Uniquement"
+elif (live_status or honey_status) and not st.session_state.get("was_live_running", False):
+    st.session_state.data_view_mode = "Sondes Réelles (Live/Honeypot)"
+
+st.session_state.was_sim_running = sim_status
+st.session_state.was_live_running = live_status or honey_status
+
+try:
+    current_index = options_view.index(st.session_state.data_view_mode)
+except ValueError:
+    current_index = 0
+
+data_view = st.sidebar.radio(
+    "Filtrer l'historique :",
+    options_view,
+    index=current_index
+)
+
+st.session_state.data_view_mode = data_view
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("##### Actions")
@@ -430,8 +567,28 @@ st.markdown("""
 # =====================================================================
 # DATA
 # =====================================================================
-df_all, total_events, attack_events, rate, recent_events = get_live_stats()
+if data_view == "Simulation Uniquement":
+    mode = "sim"
+elif data_view == "Sondes Réelles (Live/Honeypot)":
+    mode = "live"
+else:
+    mode = "all"
+
+df_all, total_events, attack_events, rate, recent_events = get_live_stats(mode)
 normal_events = total_events - attack_events
+
+# Injection du bouton PDF dans la sidebar (Option 3)
+st.sidebar.markdown("---")
+st.sidebar.markdown("##### Rapports (PDF)")
+pdf_bytes = generate_pdf_report(df_all, total_events, attack_events)
+if pdf_bytes:
+    st.sidebar.download_button(
+        label="📄 Exporter Rapport PDF",
+        data=bytes(pdf_bytes),
+        file_name=f"Rapport_SOC_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+        mime="application/pdf",
+        use_container_width=True
+    )
 
 # =====================================================================
 # TABS
@@ -956,100 +1113,175 @@ def auto_parse_logs(df):
     return mapped_df, True
 
 # =====================================================================
-# TAB 6 : BATCH FORENSICS (CSV Import)
+# TAB 6 : BATCH FORENSICS (PCAP & CSV)
 # =====================================================================
 with tab_batch:
-    st.markdown("## 📂 Investigation Forensique par Lot (Batch)")
-    st.markdown("Importez un fichier CSV contenant des logs réseau pour que l'IA analyse l'historique complet en quelques secondes.")
+    st.markdown("## 📂 Investigation Forensique Post-Mortem")
+    st.markdown("Importez un fichier PCAP (Wireshark) ou CSV contenant des logs réseau pour que l'IA analyse l'historique complet.")
     
-    uploaded_file = st.file_uploader("Choisissez un fichier CSV (format NSL-KDD ou logs bruts)", type=["csv"])
+    uploaded_file = st.file_uploader("Choisissez un fichier réseau (.pcap ou .csv)", type=["csv", "pcap", "cap"])
     
     if uploaded_file is not None:
-        try:
-            # Lecture initiale
-            df_raw = pd.read_csv(uploaded_file)
-            
-            # Passage dans l'Auto-Parser (ETL)
-            df_import, was_parsed = auto_parse_logs(df_raw)
-            
-            st.success(f"Fichier `{uploaded_file.name}` chargé ({len(df_import)} logs).")
-            
-            if was_parsed:
-                st.warning("⚠️ **Format Inconnu Détecté** : L'Auto-Parser a restructuré vos colonnes et généré les variables manquantes pour permettre l'analyse par l'IA.")
+        file_ext = uploaded_file.name.split('.')[-1].lower()
+        
+        if file_ext in ['pcap', 'cap']:
+            st.info("🔄 Analyse des trames PCAP en cours...")
+            try:
+                from scapy.all import rdpcap, IP, TCP, UDP
+                with open("temp.pcap", "wb") as f:
+                    f.write(uploaded_file.getbuffer())
                 
-            if st.button("🚀 Lancer l'Analyse IA Forensique", type="primary"):
-                progress_text = "Analyse des logs par le moteur Ensemble Learning..."
-                my_bar = st.progress(0, text=progress_text)
-                
+                packets = rdpcap("temp.pcap")
                 results_batch = []
-                total_rows = len(df_import)
                 
-                # Simulation d'un geo-ip fixe pour les logs importés
-                geo_mock = {"src_ip": "ImportedLog", "src_lat": 0, "src_lon": 0, "dst_ip": "Local", "dst_lat": 0, "dst_lon": 0}
-                
-                # Traitement ligne par ligne via l'API
-                for idx, row in df_import.iterrows():
-                    # Conversion de la row en dict pour l'API
-                    row_dict = row.to_dict()
-                    payload = {
-                        "data": row_dict,
-                        "true_label": str(row.get("label", "unknown")),
-                        "geo_data": geo_mock
-                    }
-                    
-                    try:
-                        resp = requests.post("http://127.0.0.1:8000/predict", json=payload, timeout=2)
-                        if resp.status_code == 200:
-                            pred = resp.json()
-                            results_batch.append({
-                                "Ligne": idx + 1,
-                                "Protocole": row.get("protocol_type", ""),
-                                "Service": row.get("service", ""),
-                                "Octets envoyés": row.get("src_bytes", 0),
-                                "Décision IA": pred.get("prediction", "ERROR"),
-                                "Confiance": f"{pred.get('confidence', 0)*100:.1f}%",
-                                "Sévérité": pred.get("mitre", {}).get("severity", "INFO"),
-                                "Action": pred.get("action_taken", "Alert Only")
-                            })
-                    except Exception as e:
-                        pass # Ignore les erreurs de timeout pour un batch
-                    
-                    # Maj barre de progression
-                    my_bar.progress((idx + 1) / total_rows, text=f"Analyse en cours : {idx + 1}/{total_rows} logs traités.")
-                
-                my_bar.empty()
-                st.success("✅ Analyse Forensique Terminée.")
+                for pkt in packets[:200]: # Limité aux 200 premiers pour fluidité web
+                    if IP in pkt:
+                        src_ip = pkt[IP].src
+                        dst_ip = pkt[IP].dst
+                        protocol = "tcp" if TCP in pkt else ("udp" if UDP in pkt else "icmp")
+                        service = "other"
+                        if TCP in pkt:
+                            port = pkt[TCP].dport
+                            if port in [80, 443]: service = "http"
+                            elif port == 21: service = "ftp"
+                            elif port == 22: service = "ssh"
+                            elif port == 23: service = "telnet"
+                            
+                        payload = {
+                            "data": {
+                                "protocol_type": protocol, "service": service, "flag": "SF",
+                                "src_bytes": len(pkt), "dst_bytes": 0, "count": 1, "srv_count": 1,
+                                "serror_rate": 0.0, "same_srv_rate": 1.0, "diff_srv_rate": 0.0,
+                                "dst_host_count": 1, "dst_host_srv_count": 1
+                            },
+                            "true_label": "unknown",
+                            "geo_data": {"src_ip": src_ip, "src_lat": 0, "src_lon": 0, "dst_ip": dst_ip, "dst_lat": 0, "dst_lon": 0},
+                            "is_simulation": True
+                        }
+                        
+                        try:
+                            resp = requests.post("http://127.0.0.1:8000/predict", json=payload, timeout=1)
+                            if resp.status_code == 200:
+                                pred = resp.json()
+                                results_batch.append({
+                                    "Source": src_ip,
+                                    "Destination": dst_ip,
+                                    "Protocole": protocol,
+                                    "Service": service,
+                                    "Taille": len(pkt),
+                                    "Décision IA": pred.get("prediction", "UNKNOWN"),
+                                    "Confiance": f"{pred.get('confidence', 0)*100:.1f}%",
+                                    "Mitre": pred.get("mitre", {}).get("tactic", "")
+                                })
+                        except:
+                            pass
                 
                 if results_batch:
-                    res_df = pd.DataFrame(results_batch)
+                    df_pcap = pd.DataFrame(results_batch)
+                    st.success(f"✅ Analyse terminée : {len(df_pcap)} paquets IP traités.")
                     
                     colA, colB = st.columns([1, 2])
                     with colA:
-                        nb_atk = len(res_df[res_df['Décision IA'] == 'ATTACK'])
-                        st.metric("Total Logs", len(res_df))
+                        nb_atk = len(df_pcap[df_pcap['Décision IA'] == 'ATTACK'])
+                        st.metric("Total Paquets", len(df_pcap))
                         st.metric("Attaques Trouvées", nb_atk, delta_color="inverse")
                     
                     with colB:
-                        st.markdown("### Rapport des Menaces Identifiées")
-                        # Styliser le dataframe de résultat
+                        st.markdown("### Rapport PCAP")
                         def color_decision(val):
-                            color = 'rgba(248,81,73,0.2)' if val == 'ATTACK' else 'rgba(63,185,80,0.1)'
-                            return f'background-color: {color}'
+                            return 'background-color: rgba(248,81,73,0.2)' if val == 'ATTACK' else 'background-color: rgba(63,185,80,0.1)'
                         
-                        styled_df = res_df.style.applymap(color_decision, subset=['Décision IA'])
-                        st.dataframe(styled_df, use_container_width=True)
-                        
-                        # Bouton de téléchargement
-                        csv = res_df.to_csv(index=False).encode('utf-8')
-                        st.download_button(
-                            label="📥 Télécharger le Rapport Forensique (CSV)",
-                            data=csv,
-                            file_name=f'forensic_report_{int(time.time())}.csv',
-                            mime='text/csv',
-                        )
+                        st.dataframe(df_pcap.style.applymap(color_decision, subset=['Décision IA']), use_container_width=True)
+                else:
+                    st.warning("Aucun paquet IPv4 valide ou API IA hors ligne.")
+                    
+            except Exception as e:
+                st.error(f"Erreur PCAP : {e}")
                 
-        except Exception as e:
-            st.error(f"Erreur de lecture du fichier : {e}. Assurez-vous qu'il s'agit d'un CSV compatible.")
+        elif file_ext == 'csv':
+            try:
+                # Lecture initiale
+                df_raw = pd.read_csv(uploaded_file)
+                
+                # Passage dans l'Auto-Parser (ETL)
+                df_import, was_parsed = auto_parse_logs(df_raw)
+                
+                st.success(f"Fichier `{uploaded_file.name}` chargé ({len(df_import)} logs).")
+                
+                if was_parsed:
+                    st.warning("⚠️ **Format Inconnu Détecté** : L'Auto-Parser a restructuré vos colonnes et généré les variables manquantes pour permettre l'analyse par l'IA.")
+                    
+                if st.button("🚀 Lancer l'Analyse IA Forensique", type="primary"):
+                    progress_text = "Analyse des logs par le moteur Ensemble Learning..."
+                    my_bar = st.progress(0, text=progress_text)
+                    
+                    results_batch = []
+                    total_rows = len(df_import)
+                    
+                    # Simulation d'un geo-ip fixe pour les logs importés
+                    geo_mock = {"src_ip": "ImportedLog", "src_lat": 0, "src_lon": 0, "dst_ip": "Local", "dst_lat": 0, "dst_lon": 0}
+                    
+                    # Traitement ligne par ligne via l'API
+                    for idx, row in df_import.iterrows():
+                        # Conversion de la row en dict pour l'API
+                        row_dict = row.to_dict()
+                        payload = {
+                            "data": row_dict,
+                            "true_label": str(row.get("label", "unknown")),
+                            "geo_data": geo_mock,
+                            "is_simulation": True
+                        }
+                        
+                        try:
+                            resp = requests.post("http://127.0.0.1:8000/predict", json=payload, timeout=2)
+                            if resp.status_code == 200:
+                                pred = resp.json()
+                                results_batch.append({
+                                    "Ligne": idx + 1,
+                                    "Protocole": row.get("protocol_type", ""),
+                                    "Service": row.get("service", ""),
+                                    "Octets envoyés": row.get("src_bytes", 0),
+                                    "Décision IA": pred.get("prediction", "ERROR"),
+                                    "Confiance": f"{pred.get('confidence', 0)*100:.1f}%",
+                                    "Sévérité": pred.get("mitre", {}).get("severity", "INFO"),
+                                    "Action": pred.get("action_taken", "Alert Only")
+                                })
+                        except Exception as e:
+                            pass # Ignore les erreurs de timeout pour un batch
+                        
+                        # Maj barre de progression
+                        my_bar.progress((idx + 1) / total_rows, text=f"Analyse en cours : {idx + 1}/{total_rows} logs traités.")
+                    
+                    my_bar.empty()
+                    st.success("✅ Analyse Forensique Terminée.")
+                    
+                    if results_batch:
+                        res_df = pd.DataFrame(results_batch)
+                        
+                        colA, colB = st.columns([1, 2])
+                        with colA:
+                            nb_atk = len(res_df[res_df['Décision IA'] == 'ATTACK'])
+                            st.metric("Total Logs", len(res_df))
+                            st.metric("Attaques Trouvées", nb_atk, delta_color="inverse")
+                        
+                        with colB:
+                            st.markdown("### Rapport des Menaces Identifiées")
+                            def color_decision_csv(val):
+                                return 'background-color: rgba(248,81,73,0.2)' if val == 'ATTACK' else 'background-color: rgba(63,185,80,0.1)'
+                            
+                            styled_df = res_df.style.applymap(color_decision_csv, subset=['Décision IA'])
+                            st.dataframe(styled_df, use_container_width=True)
+                            
+                            # Bouton de téléchargement
+                            csv_data = res_df.to_csv(index=False).encode('utf-8')
+                            st.download_button(
+                                label="📥 Télécharger le Rapport Forensique (CSV)",
+                                data=csv_data,
+                                file_name=f'forensic_report_{int(time.time())}.csv',
+                                mime='text/csv',
+                            )
+            except Exception as e:
+                st.error(f"Erreur de lecture du fichier : {e}. Assurez-vous qu'il s'agit d'un CSV compatible.")
 
 # =====================================================================
 # AUTO-REFRESH

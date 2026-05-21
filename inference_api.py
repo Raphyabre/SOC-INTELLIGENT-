@@ -104,6 +104,8 @@ class NetworkEvent(BaseModel):
     true_label: str = "unknown"
     # Données géographiques pour l'analyste IA
     geo_data: Dict[str, Any] = {}
+    # Indicateur de simulation pour désactiver les notifications
+    is_simulation: bool = False
 
 @app.get("/health")
 def health_check():
@@ -330,6 +332,19 @@ def predict(event: NetworkEvent):
             if src_ip:
                 block_ip_windows(src_ip)
                 action_taken = "Blocked at Firewall"
+                
+                # Déclenchement de la notification Windows (Pop-up) uniquement si ce n'est pas une simulation
+                if not event.is_simulation:
+                    try:
+                        from plyer import notification
+                        notification.notify(
+                            title="🚨 CyberShield IPS",
+                            message=f"Attaque {mitre_info.get('severity')} bloquée !\nIP source : {src_ip}\nTactique : {mitre_info.get('tactic')}",
+                            app_name="CyberShield",
+                            timeout=5
+                        )
+                    except Exception as e:
+                        print(f"⚠️ Erreur notification Windows : {e}")
         
         ai_report_text = generate_ai_report(
             prediction=prediction_label,
@@ -346,6 +361,7 @@ def predict(event: NetworkEvent):
             "prediction": prediction_label,
             "confidence": round(confidence, 4),
             "ensemble_score": round(score, 4),
+            "true_label": event.true_label,
             "details": detail_scores,
             "top_shap_features": top_shap,
             "ai_report": ai_report_text,

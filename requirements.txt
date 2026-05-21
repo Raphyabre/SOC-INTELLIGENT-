@@ -13,3 +13,7 @@ joblib
 requests
 shap
 pydeck
+psutil
+scapy
+plyer
+fpdf2

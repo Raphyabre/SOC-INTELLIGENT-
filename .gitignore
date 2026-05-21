@@ -10,7 +10,11 @@ __pycache__/
 
 # Fichiers de Base de données (Générés localement)
 soc_alerts.db
+soc_events.db
 *.sqlite3
+
+# Captures réseau
+*.pcap
 
 # Logs et Fichiers temporaires
 *.log

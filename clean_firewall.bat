@@ -1,5 +1,7 @@
 @echo off
+cd /d "%~dp0"
 chcp 65001 >nul 2>&1
+rem.
 title CyberShield - Nettoyage du Pare-feu
 echo =====================================================================
 echo   NETTOYAGE DES REGLES DE PARE-FEU CYBERSHIELD

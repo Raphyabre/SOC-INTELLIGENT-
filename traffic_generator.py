@@ -192,7 +192,8 @@ def run_simulation(interval=0.5):
             payload = {
                 "data": feature_data,
                 "true_label": str(row_dict["label"]),
-                "geo_data": geo_data
+                "geo_data": geo_data,
+                "is_simulation": True
             }
             
             # Envoyer à l'API FastAPI
