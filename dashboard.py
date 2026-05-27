@@ -594,7 +594,7 @@ if pdf_bytes:
 # TABS
 # =====================================================================
 tab_live, tab_threat, tab_xai, tab_mitre, tab_models, tab_batch = st.tabs([
-    "🌍 Live Operations", "🔍 Threat Intel", "🧠 XAI Forensics", "🗺️ MITRE ATT&CK", "📊 Model Benchmarks", "📂 Batch Forensics"
+    "🌍 Live Operations", "🔍 Threat Intel", "🧠 XAI Forensics", "🗺️ MITRE ATT&CK", "🎓 Apprentissage (Projet)", "📂 Batch Forensics"
 ])
 
 # =====================================================================
@@ -999,13 +999,44 @@ with tab_mitre:
                     st.plotly_chart(fig_tl, use_container_width=True)
 
 # =====================================================================
-# TAB 5 : MODEL BENCHMARKS
+# TAB 5 : APPRENTISSAGE (PROJET)
 # =====================================================================
 with tab_models:
-    st.markdown("## 📊 Benchmarks & Performances des Modèles IA")
+    st.markdown("## 🎓 Rapport d'Apprentissage & Projet")
+    st.markdown("""
+    Cette section présente le déroulement complet de l'entraînement de notre Intelligence Artificielle, conformément au cahier des charges du projet **SOC Intelligent basé sur l'IA**.
+    """)
+    
+    st.markdown("### 📌 Section 1 : Comprendre les données")
+    st.markdown("""
+    - **Dataset utilisé :** `NSL-KDD` (Le standard de référence pour la détection d'intrusions réseau).
+    - **Taille des données :** 125 973 lignes (Entraînement) / 22 544 lignes (Test).
+    - **Types de colonnes :** 41 Features (38 Numériques, 3 Catégorielles : `protocol_type`, `service`, `flag`).
+    - **Variable cible :** `label` (NORMAL vs ATTACK).
+    """)
+    if os.path.exists("figures/section1_eda.png"):
+        st.image("figures/section1_eda.png", use_container_width=True)
+
+    st.markdown("### ⚙️ Section 2 : Préparation des données")
+    st.markdown("""
+    - **Nettoyage :** Suppression des valeurs manquantes et des doublons inutiles.
+    - **Encodage :** Utilisation de `LabelEncoder` pour transformer les 3 variables catégorielles en valeurs numériques compréhensibles par nos modèles ML/DL.
+    - **Normalisation :** Application de `StandardScaler` pour centrer-réduire (μ=0, σ=1) les 41 features et optimiser la convergence du réseau de neurones.
+    """)
+
+    st.markdown("### 🧠 Section 3 : Modèle de détection (ML & DL)")
+    st.markdown("""
+    Nous sommes allés au-delà de la consigne en choisissant **4 modèles complémentaires** au lieu de 2, combinés dans une architecture *Ensemble Learning* :
+    1. **Random Forest** (Machine Learning Classique)
+    2. **XGBoost** (Gradient Boosting)
+    3. **DNN - Deep Neural Network** (Deep Learning supervisé)
+    4. **LSTM Autoencoder** (Deep Learning non-supervisé pour la détection d'anomalies inédites)
+    
+    - **Split des données :** Le dataset d'entraînement a été divisé en 80% Train / 20% Validation. L'évaluation a été faite sur le dataset de test indépendant `KDDTest+`.
+    """)
     
     if not os.path.exists(RESULTS_FILE):
-        st.warning("Résultats non disponibles. Entraînez les modèles d'abord.")
+        st.warning("Résultats JSON non trouvés. Exécutez le script d'entraînement au préalable.")
     else:
         with open(RESULTS_FILE, "r") as f:
             results = json.load(f)
@@ -1025,7 +1056,21 @@ with tab_models:
         # Charts
         col_c1, col_c2 = st.columns(2)
         with col_c1:
-            st.markdown("### Comparatif F1 & Accuracy")
+            st.markdown("#### Matrices de Confusion")
+            selected_model = st.selectbox("Sélectionnez un modèle pour voir sa matrice", list(results.keys()))
+            cm = np.array(results[selected_model]["cm"])
+            fig_cm = px.imshow(cm, text_auto=True, aspect="auto",
+                labels=dict(x="Classe Prédite", y="Classe Réelle", color="Nombre"),
+                x=["Normal", "Attaque"], y=["Normal", "Attaque"],
+                color_continuous_scale="Blues")
+            fig_cm.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#c9d1d9'),
+                height=350, margin=dict(l=10, r=10, t=10, b=10)
+            )
+            st.plotly_chart(fig_cm, use_container_width=True)
+
+        with col_c2:
+            st.markdown("#### Comparatif F1 & Accuracy")
             comp_df = pd.DataFrame([{"Modèle": k, "Accuracy": v["accuracy"], "F1": v["f1"]} for k, v in results.items()])
             fig_c = px.bar(comp_df, x="Modèle", y=["Accuracy", "F1"], barmode="group",
                 color_discrete_sequence=["#58a6ff", "#bc8cff"])
@@ -1035,19 +1080,25 @@ with tab_models:
                 yaxis=dict(range=[0.7, 1.02], gridcolor='#161b22')
             )
             st.plotly_chart(fig_c, use_container_width=True)
-        with col_c2:
-            st.markdown("### Matrices de Confusion")
-            selected_model = st.selectbox("Modèle", list(results.keys()))
-            cm = np.array(results[selected_model]["cm"])
-            fig_cm = px.imshow(cm, text_auto=True, aspect="auto",
-                labels=dict(x="Prédit", y="Réel", color="N"),
-                x=["Normal", "Attaque"], y=["Normal", "Attaque"],
-                color_continuous_scale="Blues")
-            fig_cm.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#c9d1d9'),
-                height=300, margin=dict(l=10, r=10, t=10, b=10)
-            )
-            st.plotly_chart(fig_cm, use_container_width=True)
+
+    if os.path.exists("figures/section3_models.png"):
+        st.markdown("#### Courbes d'apprentissage & Performances détaillées")
+        st.image("figures/section3_models.png", use_container_width=True)
+
+    if os.path.exists("figures/section3_feature_importance.png"):
+        st.markdown("#### Importance des Variables (Feature Importance)")
+        st.image("figures/section3_feature_importance.png", use_container_width=True)
+
+    st.markdown("### ⏱️ Section 4 : Simulation temps réel")
+    st.markdown("""
+    Le mode **🔴 Simu** du panneau latéral gauche répond à cette exigence.  
+    Il crée une boucle qui extrait des paquets aléatoires, les envoie au moteur IA, et le Dashboard affiche la prédiction (`NORMAL` ou `ATTACK`) instantanément.
+    """)
+
+    st.markdown("### 📊 Section 5 : Visualisation")
+    st.markdown("""
+    Nous avons choisi d'utiliser **Streamlit** pour offrir une expérience SOC complète. L'onglet `Live Operations` affiche le nombre d'événements et le nombre d'attaques en direct, enrichi d'une cartographie mondiale et de graphes dynamiques.
+    """)
 
 def auto_parse_logs(df):
     """ETL Intelligent : Tente de mapper un CSV inconnu vers les 41 features NSL-KDD."""
